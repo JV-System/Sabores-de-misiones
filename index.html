@@ -2197,6 +2197,27 @@ async function _syncPull(forzar=false){
 async function _syncPullUsuarios(){
   if(!SABORES_SCRIPT_URL) return false;
   try{
+    // Verificar primero si la DB principal está vacía
+    const dbR = await fetch(SABORES_SCRIPT_URL + '?action=getDB', { redirect:'follow' });
+    const dbJ = await dbR.json();
+    let dbData = null;
+    try{ dbData = dbJ.success && dbJ.data ? JSON.parse(dbJ.data) : null; } catch(_){}
+    const dbVacia = !dbData || (!dbData.pedidos && !dbData.clientes && !dbData.config);
+
+    if(dbVacia){
+      // DB vacía = fresh start: resetear usuarios a solo admin en memoria y en Sheets
+      USUARIOS = JSON.parse(JSON.stringify(USUARIOS_DEFAULT));
+      localStorage.setItem('jvs_usuarios', JSON.stringify(USUARIOS));
+      // Limpiar también fila 2 en Sheets
+      fetch(SABORES_SCRIPT_URL + '?action=saveUsuarios', {
+        method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'text/plain'},
+        body: JSON.stringify(USUARIOS)
+      });
+      return true;
+    }
+
+    // DB tiene datos → traer usuarios normalmente
     const r = await fetch(SABORES_SCRIPT_URL + '?action=getUsuarios', { redirect:'follow' });
     const j = await r.json();
     if(j.success && j.data){
