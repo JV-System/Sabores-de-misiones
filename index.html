@@ -1998,6 +1998,21 @@ tr:hover td{background:#fafbfd}
 // ════════════════════════════════════════════════
 //  DATA LAYER
 // ════════════════════════════════════════════════
+// FORCE UPDATE: ?update en la URL borra cache y SW y recarga limpio
+if(window.location.search.includes('update')){
+  (async()=>{
+    if('serviceWorker' in navigator){
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r=>r.unregister()));
+    }
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k=>caches.delete(k)));
+    // Recargar sin el parámetro
+    window.location.href = window.location.href.replace(/[?&]update[^&]*/,'').replace(/[?&]$/,'');
+  })();
+}
+
+// ════════════════════════════════════════════════
 // Verificar si es acceso al catálogo público (?catalogo en URL)
 if(typeof window !== 'undefined' && window.location && window.location.search.includes('catalogo')){
   document.addEventListener('DOMContentLoaded', ()=>{
