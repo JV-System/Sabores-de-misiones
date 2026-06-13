@@ -1468,6 +1468,13 @@ tr:hover td{background:#fafbfd}
             <b style="color:var(--red);display:block;margin-bottom:4px">⚠️ Zona de precaución</b>
             Estas acciones eliminan datos permanentemente. Se descarga un backup automático antes de borrar.
           </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--text)">☁️ Traer datos desde la nube</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Reemplaza los datos de este dispositivo con los de Google Sheets. Útil si este celular quedó desactualizado.</div>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="syncForzarDesdeNube()">⬇ Traer de nube</button>
+          </div>
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;background:#fff0f0;border:2px solid var(--red);border-radius:8px;padding:12px 14px">
             <div>
               <div style="font-size:13px;font-weight:700;color:var(--red)">🗑️ BORRAR TODOS LOS DATOS</div>
@@ -2102,27 +2109,29 @@ function _syncPush(){
 }
 let _syncRetryTimer = null;
 
-async function _syncPull(){
+async function _syncPull(forzar=false){
   if(!SABORES_SCRIPT_URL) return false;
   try{
     const r = await fetch(SABORES_SCRIPT_URL + '?action=getDB', { redirect:'follow' });
     const j = await r.json();
     if(j.success && j.data){
       const remote = JSON.parse(j.data);
-      if(remote && (remote.pedidos || remote.clientes || remote.config)){
+      if(remote && (remote.pedidos !== undefined || remote.clientes !== undefined)){
         const localTs  = db._lastModified || 0;
         const remoteTs = remote._lastModified || 0;
-        // Si el local es más nuevo, no pisar — solo hacer push del local a la nube
-        if(localTs > remoteTs){
-          console.log('Local más nuevo (' + localTs + ' > ' + remoteTs + '): descartando pull, re-pusheando local');
+
+        // Si ambos tienen timestamp Y local es más nuevo Y no se fuerza → guardar local en nube
+        if(!forzar && localTs > 0 && remoteTs > 0 && localTs > remoteTs){
+          console.log('[Sync] Local más nuevo — re-pusheando a nube');
           _syncPush();
           return true;
         }
-        // Remoto es más nuevo: aplicar
+
+        // Aplicar datos remotos
         const localCodigos = db.config?.codigosDescuento||{};
         db = remote;
         _initDbFields();
-        if(Object.keys(localCodigos).length) {
+        if(Object.keys(localCodigos).length){
           db.config.codigosDescuento = {...localCodigos, ...(db.config.codigosDescuento||{})};
         }
         if(!db.config.productos) db.config.productos = JSON.parse(JSON.stringify(DEFAULT_PRODUCTOS));
@@ -2130,7 +2139,7 @@ async function _syncPull(){
         return true;
       }
     }
-  } catch(e){ console.error('syncPull error:', e); }
+  } catch(e){ console.error('[Sync] Pull error:', e); }
   return false;
 }
 
@@ -2151,12 +2160,31 @@ async function _syncPullUsuarios(){
   return false;
 }
 
+// Forzar traer datos de la nube, ignorando timestamp local
+async function syncForzarDesdeNube(){
+  if(!SABORES_SCRIPT_URL){ toast('URL del script no configurada','error'); return; }
+  if(!confirm('¿Reemplazar los datos locales con los de la nube?\n\nSi hiciste cambios en este dispositivo que no se subieron, se perderán.')) return;
+  toast('Descargando desde la nube...', 'info');
+  _setSyncStatus('syncing');
+  const ok = await _syncPull(true); // forzar = true, ignora timestamp
+  if(ok){
+    _setSyncStatus('ok');
+    toast('✅ Datos traídos desde la nube', 'success');
+    renderDashboard();
+    if(typeof renderPedidos==='function') renderPedidos();
+    if(typeof renderClientes==='function') renderClientes();
+  } else {
+    _setSyncStatus('error');
+    toast('Error al conectar con la nube', 'error');
+  }
+}
+
 // Botón manual de sync (accesible desde config para admin)
 async function syncAhora(){
   if(!SABORES_SCRIPT_URL){ toast('URL del script no configurada','error'); return; }
   toast('Sincronizando...', 'info');
   _setSyncStatus('syncing');
-  const ok = await _syncPull();
+  const ok = await _syncPull(false);
   if(ok){
     _setSyncStatus('ok');
     toast('✓ Datos actualizados desde la nube', 'success');
