@@ -2144,23 +2144,41 @@ async function _doPush(){
 // EXCEPTO si hay un push pendiente (datos locales aún no confirmados).
 async function _syncPull(forzar=false){
   if(!SABORES_SCRIPT_URL) return false;
-  // Si hay datos pendientes de subir, primero subir antes de pisar
-  if(_pushPending && !forzar){
-    await _doPush();
-  }
+  if(_pushPending && !forzar) await _doPush();
   try{
     const r = await fetch(SABORES_SCRIPT_URL + '?action=getDB', {redirect:'follow'});
     const j = await r.json();
-    if(j.success && j.data){
-      const remote = JSON.parse(j.data);
-      if(remote && (remote.pedidos !== undefined || remote.clientes !== undefined)){
-        db = remote;
+    if(j.success !== undefined){ // el script respondió OK
+      let remote = null;
+      try{ remote = j.data ? JSON.parse(j.data) : null; } catch(_){}
+
+      if(!remote || typeof remote !== 'object' || (!remote.pedidos && !remote.clientes && !remote.config)){
+        // Sheets está vacío → arrancar de cero, limpiar local también
+        db = {
+          pedidos:[], clientes:[], dario:[], compras:[], despachos:[],
+          gastos:[], presupuestosGuardados:[],
+          config:{ nextPedido:1, nextCompra:1, stockEstampillas:0, codigosDescuento:{} },
+          _lastModified: Date.now()
+        };
         _initDbFields();
-        if(!db.config.productos) db.config.productos = JSON.parse(JSON.stringify(DEFAULT_PRODUCTOS));
         localStorage.setItem(DB_KEY, JSON.stringify(db));
+        // Subir el estado vacío al sheet para que quede sincronizado
+        await fetch(SABORES_SCRIPT_URL + '?action=saveDB', {
+          method:'POST', mode:'no-cors',
+          headers:{'Content-Type':'text/plain'},
+          body: JSON.stringify(db)
+        });
         _setSyncStatus('ok');
         return true;
       }
+
+      // Hay datos en Sheets → aplicar
+      db = remote;
+      _initDbFields();
+      if(!db.config.productos) db.config.productos = JSON.parse(JSON.stringify(DEFAULT_PRODUCTOS));
+      localStorage.setItem(DB_KEY, JSON.stringify(db));
+      _setSyncStatus('ok');
+      return true;
     }
   } catch(e){ console.error('[Sync] Pull error:', e); _setSyncStatus('error'); }
   return false;
