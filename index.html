@@ -2157,7 +2157,7 @@ async function _syncPull(forzar=false){
       let remote = null;
       try{ remote = j.data ? JSON.parse(j.data) : null; } catch(_){}
 
-      if(!remote || typeof remote !== 'object' || (!remote.pedidos && !remote.clientes && !remote.config)){
+      if(!remote || typeof remote !== 'object' || ((!remote.pedidos || remote.pedidos.length === 0) && (!remote.clientes || remote.clientes.length === 0))){
         // Sheets está vacío → arrancar de cero, limpiar todo local
         db = {
           pedidos:[], clientes:[], dario:[], compras:[], despachos:[],
@@ -2202,7 +2202,7 @@ async function _syncPullUsuarios(){
     const dbJ = await dbR.json();
     let dbData = null;
     try{ dbData = dbJ.success && dbJ.data ? JSON.parse(dbJ.data) : null; } catch(_){}
-    const dbVacia = !dbData || (!dbData.pedidos && !dbData.clientes && !dbData.config);
+    const dbVacia = !dbData || ((!dbData.pedidos || dbData.pedidos.length === 0) && (!dbData.clientes || dbData.clientes.length === 0));
 
     if(dbVacia){
       // DB vacía = fresh start: resetear usuarios a solo admin en memoria y en Sheets
