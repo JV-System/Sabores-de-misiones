@@ -2153,7 +2153,7 @@ async function _syncPull(forzar=false){
       try{ remote = j.data ? JSON.parse(j.data) : null; } catch(_){}
 
       if(!remote || typeof remote !== 'object' || (!remote.pedidos && !remote.clientes && !remote.config)){
-        // Sheets está vacío → arrancar de cero, limpiar local también
+        // Sheets está vacío → arrancar de cero, limpiar todo local
         db = {
           pedidos:[], clientes:[], dario:[], compras:[], despachos:[],
           gastos:[], presupuestosGuardados:[],
@@ -2162,7 +2162,12 @@ async function _syncPull(forzar=false){
         };
         _initDbFields();
         localStorage.setItem(DB_KEY, JSON.stringify(db));
-        // Subir el estado vacío al sheet para que quede sincronizado
+        // Resetear usuarios a solo admin (limpiar usuarios viejos)
+        if(typeof USUARIOS_DEFAULT !== 'undefined'){
+          USUARIOS = JSON.parse(JSON.stringify(USUARIOS_DEFAULT));
+          localStorage.setItem('jvs_usuarios', JSON.stringify(USUARIOS));
+        }
+        // Subir estado vacío al sheet
         await fetch(SABORES_SCRIPT_URL + '?action=saveDB', {
           method:'POST', mode:'no-cors',
           headers:{'Content-Type':'text/plain'},
