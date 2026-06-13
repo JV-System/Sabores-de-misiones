@@ -2069,77 +2069,100 @@ function saveDB(){
   _syncPush();
 }
 
-// ── SINCRONIZACIÓN CON GOOGLE SHEETS ─────────────────────────────────────────
+// ══════════════════════════════════════════════════════
+//  SYNC — Google Sheets como base de datos central
+//  Principio: Sheets es siempre la fuente de verdad.
+//  • Push: al guardar → subir a Sheets (con verificación)
+//  • Pull: al abrir, al volver a la app, cada 2 min → bajar de Sheets
+// ══════════════════════════════════════════════════════
 
-let _syncTimer = null;
-let _syncStatus = 'idle';
+let _syncTimer    = null;
+let _syncRetryTimer = null;
+let _syncStatus   = 'idle';
+let _pushPending  = false; // hay datos locales que aún no confirmamos en Sheets
 
-// Envía datos a GAS usando text/plain (no-cors, sin preflight).
-// La acción va en la URL (?action=...) y el JSON en el body.
-async function _gasPost(action, jsonStr){
-  await fetch(SABORES_SCRIPT_URL + '?action=' + action, {
-    method: 'POST',
-    mode: 'no-cors',
-    headers: { 'Content-Type': 'text/plain' },
-    body: jsonStr
-  });
+function saveDB_noSync(){
+  // Igual que saveDB pero sin push (para uso interno del sync)
+  localStorage.setItem(DB_KEY, JSON.stringify(db));
 }
 
+// ── PUSH ─────────────────────────────────────────────
+// Estrategia:
+//   1. POST con mode:'cors' → si funciona, confirmado.
+//   2. Si CORS bloqueado → POST no-cors (fire & forget) + verificar vía GET.
+//   3. Si falla → reintentar en 30s.
 function _syncPush(){
   if(!SABORES_SCRIPT_URL) return;
+  _pushPending = true;
   clearTimeout(_syncTimer);
-  _syncTimer = setTimeout(async ()=>{
-    _setSyncStatus('syncing');
-    try{
-      // Verificar conectividad primero con un GET rápido
-      const check = await fetch(SABORES_SCRIPT_URL + '?action=ping', { redirect:'follow' });
-      const j = await check.json().catch(()=>({}));
-      if(!j.ok && !j.success && !j.pong){
-        throw new Error('ping failed');
-      }
-      // Enviar datos
-      await _gasPost('saveDB', JSON.stringify(db));
-      _setSyncStatus('ok');
-    } catch(e){
-      _setSyncStatus('error');
-      // Reintentar en 30 segundos si falló
-      _syncRetryTimer = setTimeout(()=>_syncPush(), 30000);
-    }
-  }, 1200);
+  clearTimeout(_syncRetryTimer);
+  _syncTimer = setTimeout(_doPush, 1200); // debounce 1.2s para batching
 }
-let _syncRetryTimer = null;
 
+async function _doPush(){
+  if(!SABORES_SCRIPT_URL) return;
+  _setSyncStatus('syncing');
+  const payload = JSON.stringify(db);
+  const ts      = db._lastModified;
+
+  // Intento 1: CORS (podemos leer la respuesta)
+  try{
+    const r = await fetch(SABORES_SCRIPT_URL + '?action=saveDB', {
+      method:'POST', mode:'cors',
+      headers:{'Content-Type':'text/plain'},
+      body: payload
+    });
+    const j = await r.json().catch(()=>({}));
+    if(j.success){ _pushPending=false; _setSyncStatus('ok'); return; }
+  } catch(_){}
+
+  // Intento 2: no-cors (no leemos respuesta) + verificación GET
+  try{
+    await fetch(SABORES_SCRIPT_URL + '?action=saveDB', {
+      method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'text/plain'},
+      body: payload
+    });
+    // Esperar 2s y verificar que Sheets tiene el timestamp correcto
+    await new Promise(r=>setTimeout(r,2000));
+    const vr = await fetch(SABORES_SCRIPT_URL + '?action=getDB', {redirect:'follow'});
+    const vj = await vr.json().catch(()=>({}));
+    if(vj.success && vj.data){
+      const saved = JSON.parse(vj.data);
+      if(saved._lastModified === ts){ _pushPending=false; _setSyncStatus('ok'); return; }
+    }
+    throw new Error('verificación fallida');
+  } catch(e){
+    console.warn('[Sync] Push falló, reintentando en 30s', e);
+    _setSyncStatus('error');
+    _syncRetryTimer = setTimeout(_doPush, 30000);
+  }
+}
+
+// ── PULL ─────────────────────────────────────────────
+// Sheets es la fuente de verdad. Siempre aplicar remoto,
+// EXCEPTO si hay un push pendiente (datos locales aún no confirmados).
 async function _syncPull(forzar=false){
   if(!SABORES_SCRIPT_URL) return false;
+  // Si hay datos pendientes de subir, primero subir antes de pisar
+  if(_pushPending && !forzar){
+    await _doPush();
+  }
   try{
-    const r = await fetch(SABORES_SCRIPT_URL + '?action=getDB', { redirect:'follow' });
+    const r = await fetch(SABORES_SCRIPT_URL + '?action=getDB', {redirect:'follow'});
     const j = await r.json();
     if(j.success && j.data){
       const remote = JSON.parse(j.data);
       if(remote && (remote.pedidos !== undefined || remote.clientes !== undefined)){
-        const localTs  = db._lastModified || 0;
-        const remoteTs = remote._lastModified || 0;
-
-        // Si ambos tienen timestamp Y local es más nuevo Y no se fuerza → guardar local en nube
-        if(!forzar && localTs > 0 && remoteTs > 0 && localTs > remoteTs){
-          console.log('[Sync] Local más nuevo — re-pusheando a nube');
-          _syncPush();
-          return true;
-        }
-
-        // Aplicar datos remotos
-        const localCodigos = db.config?.codigosDescuento||{};
         db = remote;
         _initDbFields();
-        if(Object.keys(localCodigos).length){
-          db.config.codigosDescuento = {...localCodigos, ...(db.config.codigosDescuento||{})};
-        }
         if(!db.config.productos) db.config.productos = JSON.parse(JSON.stringify(DEFAULT_PRODUCTOS));
         localStorage.setItem(DB_KEY, JSON.stringify(db));
+        _setSyncStatus('ok');
         return true;
       }
     }
-  } catch(e){ console.error('[Sync] Pull error:', e); }
+  } catch(e){ console.error('[Sync] Pull error:', e); _setSyncStatus('error'); }
   return false;
 }
 
@@ -2160,40 +2183,58 @@ async function _syncPullUsuarios(){
   return false;
 }
 
-// Forzar traer datos de la nube, ignorando timestamp local
+// Pull manual forzado (botón "Traer de nube")
 async function syncForzarDesdeNube(){
   if(!SABORES_SCRIPT_URL){ toast('URL del script no configurada','error'); return; }
-  if(!confirm('¿Reemplazar los datos locales con los de la nube?\n\nSi hiciste cambios en este dispositivo que no se subieron, se perderán.')) return;
+  if(!confirm('¿Reemplazar los datos locales con los de la nube?')) return;
   toast('Descargando desde la nube...', 'info');
-  _setSyncStatus('syncing');
-  const ok = await _syncPull(true); // forzar = true, ignora timestamp
+  const ok = await _syncPull(true);
   if(ok){
-    _setSyncStatus('ok');
     toast('✅ Datos traídos desde la nube', 'success');
-    renderDashboard();
-    if(typeof renderPedidos==='function') renderPedidos();
-    if(typeof renderClientes==='function') renderClientes();
+    _reRenderTodo();
   } else {
-    _setSyncStatus('error');
     toast('Error al conectar con la nube', 'error');
   }
 }
 
-// Botón manual de sync (accesible desde config para admin)
+// Pull + Push manual (botón en header / config)
 async function syncAhora(){
   if(!SABORES_SCRIPT_URL){ toast('URL del script no configurada','error'); return; }
   toast('Sincronizando...', 'info');
-  _setSyncStatus('syncing');
   const ok = await _syncPull(false);
   if(ok){
-    _setSyncStatus('ok');
-    toast('✓ Datos actualizados desde la nube', 'success');
-    showSection(document.querySelector('.nav-tab.active')?.dataset?.sec || 'dashboard');
+    toast('✓ Sincronizado', 'success');
+    _reRenderTodo();
   } else {
-    _setSyncStatus('error');
     toast('No se pudo conectar con el servidor', 'error');
   }
 }
+
+// Re-renderiza la sección activa después de un pull
+function _reRenderTodo(){
+  renderDashboard();
+  const sec = document.querySelector('.content.active')?.id?.replace('sec-','');
+  if(sec) showSection(sec);
+}
+
+// ── AUTO-PULL: al volver a la app y cada 2 minutos ───
+let _autoPullTimer = null;
+function _startAutoPull(){
+  clearInterval(_autoPullTimer);
+  _autoPullTimer = setInterval(async ()=>{
+    if(!currentUser) return;
+    const ok = await _syncPull(false);
+    if(ok) _reRenderTodo();
+  }, 2 * 60 * 1000); // cada 2 minutos
+}
+document.addEventListener('visibilitychange', async ()=>{
+  if(document.visibilityState === 'visible' && currentUser){
+    const ok = await _syncPull(false);
+    if(ok) _reRenderTodo();
+    // También chequear actualizaciones de la app
+    if(_swReg) _swReg.update().catch(()=>{});
+  }
+});
 
 function saveUsuariosAndSync(){
   localStorage.setItem('jvs_usuarios', JSON.stringify(USUARIOS));
@@ -4506,17 +4547,13 @@ function initApp(){
   showSection(first);
   setTimeout(updateChatBadge, 300);
   setTimeout(pedirPermisoNotif, 2000);
-  // Sincronizar datos desde Sheets al iniciar sesión
+  // Sincronizar desde Sheets al iniciar sesión y arrancar auto-pull
   if(SABORES_SCRIPT_URL){
     _setSyncStatus('syncing');
-    _syncPull().then(pulled => {
-      _setSyncStatus(pulled ? 'ok' : 'error');
-      if(pulled){
-        // Refrescar la sección activa con datos actualizados
-        showSection(first);
-        setTimeout(updateChatBadge, 100);
-      }
+    _syncPull(false).then(pulled => {
+      if(pulled){ showSection(first); setTimeout(updateChatBadge,100); }
     });
+    _startAutoPull();
   }
 }
 
