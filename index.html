@@ -1072,6 +1072,11 @@ tr:hover td{background:#fafbfd}
     </div>
     <div class="content-body">
       <div class="kpi-grid" id="kpiCompras"></div>
+      <!-- Cuenta corriente por proveedor -->
+      <div class="card" id="ctaCteProv" style="display:none">
+        <div class="card-title">🏦 Cuenta Corriente por Proveedor</div>
+        <div id="ctaCteProvBody"></div>
+      </div>
       <div id="listaOC"></div>
     </div>
   </section>
@@ -1249,6 +1254,16 @@ tr:hover td{background:#fafbfd}
           </table>
         </div>
       </div>
+      <!-- Compras por proveedor -->
+      <div class="card">
+        <div class="card-title">🛒 Kg comprado por proveedor</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Proveedor</th><th>Concepto</th><th class="td-right">Kg / u</th><th class="td-right">Total</th></tr></thead>
+            <tbody id="infTablaComprasProv"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -1355,7 +1370,7 @@ tr:hover td{background:#fafbfd}
         <div class="config-card-head">
           <div class="config-card-title">🏷️ Stock de Estampillas</div>
         </div>
-        <div style="padding:16px 20px;display:flex;align-items:center;gap:16px">
+        <div style="padding:16px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
           <button class="btn btn-danger" onclick="ajustarEstampillas(-1)">− 1</button>
           <button class="btn btn-ghost" onclick="ajustarEstampillas(-10)">− 10</button>
           <span style="font-size:28px;font-weight:800;min-width:80px;text-align:center" id="stockEstDisplay">${db.config.stockEstampillas||0}</span>
@@ -1365,6 +1380,26 @@ tr:hover td{background:#fafbfd}
           <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
             <input type="number" id="estAddQty" class="form-control" style="width:80px" placeholder="Cant.">
             <button class="btn btn-success" onclick="ajustarEstampillas(Number(document.getElementById('estAddQty').value)||0)">Agregar</button>
+          </div>
+        </div>
+        <div style="padding:0 20px 16px 20px;display:flex;align-items:center;gap:12px;border-top:1px solid var(--border);padding-top:12px">
+          <label class="form-label" style="margin:0;white-space:nowrap">Descuento s/estampilla ($/kg):</label>
+          <input type="number" id="deltaEstampillaInput" class="form-control" style="width:100px" placeholder="220">
+          <button class="btn btn-primary btn-sm" onclick="guardarDeltaEstampilla()">Guardar</button>
+          <span style="font-size:12px;color:var(--text-muted)">Diferencia de precio para precio sin estampilla</span>
+        </div>
+      </div>
+
+      <!-- Card Rubros de gastos -->
+      <div class="config-card">
+        <div class="config-card-head">
+          <div class="config-card-title">💸 Rubros de Gastos</div>
+        </div>
+        <div style="padding:16px 20px">
+          <div id="rubrosGastosBody"></div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <input type="text" id="nuevoRubroInput" class="form-control" placeholder="Nuevo rubro…">
+            <button class="btn btn-primary btn-sm" onclick="agregarRubroGasto()">+ Agregar</button>
           </div>
         </div>
       </div>
@@ -1434,6 +1469,13 @@ tr:hover td{background:#fafbfd}
             Estas acciones eliminan datos permanentemente. Se descarga un backup automático antes de borrar.
           </div>
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--text)">Imprimir resumen del mes anterior</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Genera un resumen imprimible (backup visual) de pedidos, compras y gastos del mes anterior.</div>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="imprimirMesAnterior()">🖨 Imprimir</button>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding-top:10px;border-top:1px solid #f5c6c6">
             <div>
               <div style="font-size:13px;font-weight:600;color:var(--text)">Limpiar datos de meses anteriores</div>
               <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Elimina pedidos, compras, despachos y gastos que <b>no son de este mes</b>. Clientes y configuración se mantienen.</div>
@@ -1923,16 +1965,7 @@ tr:hover td{background:#fafbfd}
         </div>
         <div class="form-group">
           <label class="form-label">Rubro</label>
-          <select class="form-control" id="gastoRubro">
-            <option value="Embalaje">📦 Embalaje</option>
-            <option value="Estampillas">🏷️ Estampillas</option>
-            <option value="Transporte">🚚 Transporte</option>
-            <option value="Despacho">📮 Despacho</option>
-            <option value="Impuestos">🏛️ Impuestos / AFIP</option>
-            <option value="Retiros">💰 Retiros personales</option>
-            <option value="Servicios">💡 Servicios</option>
-            <option value="Varios">🔧 Varios</option>
-          </select>
+          <select class="form-control" id="gastoRubro"></select>
         </div>
         <div class="form-group form-full">
           <label class="form-label">Descripción</label>
@@ -1996,6 +2029,10 @@ function _initDbFields(){
   if(!db.config.cuentas) db.config.cuentas=[{id:1,nombre:'Cuenta 1',saldo:0},{id:2,nombre:'Cuenta 2',saldo:0}];
   if(!db.config.precioEmbalaje) db.config.precioEmbalaje=130;
   if(!db.config.precioFlete) db.config.precioFlete=50;
+  if(!db.config.rubrosGastos) db.config.rubrosGastos=['Embalaje','Estampillas','Transporte','Despacho','Impuestos','Retiros','Servicios','Varios'];
+  if(db.config.deltaEstampilla===undefined) db.config.deltaEstampilla=220;
+  if(!db.config.cuentasMovimientos) db.config.cuentasMovimientos=[];
+  if(!db.config.preciosComposicion) db.config.preciosComposicion={};
 }
 function saveDB(){
   localStorage.setItem(DB_KEY, JSON.stringify(db));
@@ -2311,20 +2348,86 @@ function renderDashboard(){
     </div>`;
 }
 
+function calcSaldoCuenta(cuentaId){
+  return (db.config.cuentasMovimientos||[]).filter(m=>m.cuentaId===cuentaId).reduce((s,m)=>m.tipo==='entrada'?s+(Number(m.monto)||0):s-(Number(m.monto)||0),0);
+}
 function openCuentasModal(){
   if(!db.config.cuentas) db.config.cuentas=[{id:1,nombre:'Cuenta 1',saldo:0},{id:2,nombre:'Cuenta 2',saldo:0}];
+  if(!db.config.cuentasMovimientos) db.config.cuentasMovimientos=[];
   const c1=db.config.cuentas[0]; const c2=db.config.cuentas[1];
-  const n1=prompt(`Nombre de ${c1.nombre}:`,c1.nombre)||c1.nombre;
-  if(n1===null) return;
-  const s1=prompt(`Saldo de ${n1} ($):`,c1.saldo||0);
-  if(s1===null) return;
-  const n2=prompt(`Nombre de ${c2.nombre}:`,c2.nombre)||c2.nombre;
-  if(n2===null) return;
-  const s2=prompt(`Saldo de ${n2} ($):`,c2.saldo||0);
-  if(s2===null) return;
-  db.config.cuentas[0]={id:1,nombre:n1,saldo:Number(s1)||0};
-  db.config.cuentas[1]={id:2,nombre:n2,saldo:Number(s2)||0};
-  saveDB(); renderDashboard(); toast('Saldos actualizados ✓','success');
+  const s1=calcSaldoCuenta(1); const s2=calcSaldoCuenta(2);
+  const movs=[...db.config.cuentasMovimientos].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).slice(0,30);
+  const movsHtml=movs.length?movs.map(m=>{
+    const cNombre=db.config.cuentas.find(c=>c.id===m.cuentaId)?.nombre||'Cuenta';
+    return `<tr><td style="font-size:11px">${m.fecha||''}</td><td style="font-size:11px">${cNombre}</td><td style="font-size:11px">${m.concepto||''}</td><td style="font-size:11px;text-align:right;color:${m.tipo==='entrada'?'var(--teal)':'var(--red)'}">${m.tipo==='entrada'?'+':'-'}${fmt(m.monto)}</td><td><button onclick="eliminarMovCuenta(${m.id})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:12px">✕</button></td></tr>`;
+  }).join(''):'<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:12px">Sin movimientos</td></tr>';
+  const html=`<div class="modal-overlay open" id="modalCuentas" onclick="if(event.target===this)closeCuentasModal()">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header"><span class="modal-title">💳 Cuentas virtuales</span><button class="modal-close" onclick="closeCuentasModal()">×</button></div>
+      <div class="modal-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+          <div style="background:var(--bg);border-radius:var(--radius);padding:12px;text-align:center">
+            <div style="font-size:11px;color:var(--text-muted)">${c1.nombre}</div>
+            <div style="font-size:20px;font-weight:800;color:${s1>=0?'var(--teal)':'var(--red)'}">${s1>=0?'+':''}${fmt(s1)}</div>
+          </div>
+          <div style="background:var(--bg);border-radius:var(--radius);padding:12px;text-align:center">
+            <div style="font-size:11px;color:var(--text-muted)">${c2.nombre}</div>
+            <div style="font-size:20px;font-weight:800;color:${s2>=0?'var(--teal)':'var(--red)'}">${s2>=0?'+':''}${fmt(s2)}</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto auto;gap:6px;align-items:end;margin-bottom:12px">
+          <select class="form-control" id="cMovCuenta" style="font-size:12px">
+            <option value="1">${c1.nombre}</option>
+            <option value="2">${c2.nombre}</option>
+          </select>
+          <input class="form-control" type="date" id="cMovFecha" value="${today()}" style="font-size:12px">
+          <input class="form-control" placeholder="Concepto" id="cMovConcepto" style="font-size:12px">
+          <input class="form-control" type="number" placeholder="Monto" id="cMovMonto" style="font-size:12px;width:90px">
+          <select class="form-control" id="cMovTipo" style="font-size:12px;width:90px">
+            <option value="entrada">+ Entrada</option>
+            <option value="salida">− Salida</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:14px">
+          <button class="btn btn-primary btn-sm" onclick="agregarMovCuenta()">+ Registrar</button>
+          <button class="btn btn-ghost btn-sm" onclick="renombrarCuentas()">✏️ Renombrar cuentas</button>
+        </div>
+        <div style="max-height:220px;overflow-y:auto">
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="font-size:10px;color:var(--text-muted)"><th>Fecha</th><th>Cuenta</th><th>Concepto</th><th style="text-align:right">Monto</th><th></th></tr></thead>
+            <tbody id="cuentasMovsList">${movsHtml}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+function closeCuentasModal(){const m=document.getElementById('modalCuentas');if(m)m.remove();}
+function agregarMovCuenta(){
+  const cuentaId=Number(document.getElementById('cMovCuenta').value);
+  const fecha=document.getElementById('cMovFecha').value;
+  const concepto=document.getElementById('cMovConcepto').value.trim();
+  const monto=Number(document.getElementById('cMovMonto').value)||0;
+  const tipo=document.getElementById('cMovTipo').value;
+  if(!monto){toast('Ingresá un monto','error');return;}
+  db.config.cuentasMovimientos.push({id:Date.now(),cuentaId,fecha,concepto,monto,tipo});
+  // Actualizar saldo en cuentas para compatibilidad
+  db.config.cuentas[cuentaId-1].saldo=calcSaldoCuenta(cuentaId);
+  saveDB(); closeCuentasModal(); openCuentasModal(); renderDashboard(); toast('Movimiento registrado ✓','success');
+}
+function eliminarMovCuenta(id){
+  db.config.cuentasMovimientos=db.config.cuentasMovimientos.filter(m=>m.id!==id);
+  db.config.cuentas[0].saldo=calcSaldoCuenta(1);
+  db.config.cuentas[1].saldo=calcSaldoCuenta(2);
+  saveDB(); closeCuentasModal(); openCuentasModal(); renderDashboard();
+}
+function renombrarCuentas(){
+  const c1=db.config.cuentas[0]; const c2=db.config.cuentas[1];
+  const n1=prompt('Nombre de la cuenta 1:',c1.nombre); if(n1===null) return;
+  const n2=prompt('Nombre de la cuenta 2:',c2.nombre); if(n2===null) return;
+  c1.nombre=n1||c1.nombre; c2.nombre=n2||c2.nombre;
+  saveDB(); closeCuentasModal(); openCuentasModal(); renderDashboard(); toast('Cuentas renombradas ✓','success');
 }
 
 function calcSaldoDario(){
@@ -3138,6 +3241,33 @@ function renderCompras(){
     <div class="kpi-card kpi-red"><div class="kpi-label">Total Invertido</div><div class="kpi-value">${fmt(totalPesos)}</div></div>
     <div class="kpi-card kpi-blue"><div class="kpi-label">Órdenes de Compra</div><div class="kpi-value">${db.compras.length}</div></div>`;
 
+  // Cuenta corriente por proveedor
+  const ctaEl=document.getElementById('ctaCteProv');
+  const ctaBody=document.getElementById('ctaCteProvBody');
+  if(ctaEl&&ctaBody&&db.compras.length){
+    const provSaldo={};
+    db.compras.forEach(c=>{
+      const prov=c.proveedor||'Sin proveedor';
+      if(!provSaldo[prov]) provSaldo[prov]={debe:0,pagado:0};
+      const subtotal=c.items.reduce((s,i)=>(s+(Number(i.cantidad)||0)*(Number(i.precio)||0)),0);
+      provSaldo[prov].debe+=subtotal;
+      provSaldo[prov].pagado+=Number(c.pagado)||0;
+    });
+    ctaBody.innerHTML=Object.entries(provSaldo).map(([prov,v])=>{
+      const saldo=v.debe-v.pagado;
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);gap:8px;flex-wrap:wrap">
+        <div style="font-weight:700;font-size:13px">${prov}</div>
+        <div style="display:flex;gap:16px;font-size:12px">
+          <span>Comprado: <b>${fmt(v.debe)}</b></span>
+          <span>Pagado: <b style="color:var(--teal)">${fmt(v.pagado)}</b></span>
+          <span>Saldo: <b style="color:${saldo>0?'var(--red)':'var(--teal)'}">${saldo>0?'Debés '+fmt(saldo):'Al día'}</b></span>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="registrarPagoProveedor('${prov.replace(/'/g,"\\'")}')">💳 Registrar pago</button>
+      </div>`;
+    }).join('');
+    ctaEl.style.display='block';
+  } else if(ctaEl) ctaEl.style.display='none';
+
   const sorted=[...db.compras].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
   if(!sorted.length){
     document.getElementById('listaOC').innerHTML='<div class="empty-state"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg><p>Sin órdenes de compra registradas</p></div>';
@@ -3230,6 +3360,26 @@ function saveCompra(){
   saveDB(); closeModal('modalCompra'); renderCompras(); toast(`Compra ${numero} registrada ✓`,'success');
 }
 function deleteCompra(id){ if(!confirm('¿Eliminar?')) return; db.compras=db.compras.filter(c=>c.id!==id); saveDB(); renderCompras(); }
+function registrarPagoProveedor(prov){
+  const monto=prompt(`Monto pagado a ${prov} ($):`);
+  if(monto===null) return;
+  const v=Number(monto)||0;
+  if(!v){toast('Ingresá un monto válido','error');return;}
+  // Distribuir el pago a las compras más antiguas primero
+  const ocsProv=[...db.compras].filter(c=>(c.proveedor||'Sin proveedor')===prov).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
+  let resto=v;
+  ocsProv.forEach(oc=>{
+    if(resto<=0) return;
+    const subtotal=oc.items.reduce((s,i)=>s+(Number(i.cantidad)||0)*(Number(i.precio)||0),0);
+    const pagadoAntes=Number(oc.pagado)||0;
+    const deuda=subtotal-pagadoAntes;
+    if(deuda<=0) return;
+    const aplicar=Math.min(deuda,resto);
+    oc.pagado=(pagadoAntes+aplicar);
+    resto-=aplicar;
+  });
+  saveDB(); renderCompras(); toast(`Pago de ${fmt(v)} registrado a ${prov} ✓`,'success');
+}
 
 // ════════════════════════════════════════════════
 //  DESPACHOS
@@ -3275,7 +3425,8 @@ function renderDespachos(){
       <td class="td-num" style="color:var(--red)">${debe?fmt(debe):'—'}</td>
       <td class="td-num" style="color:var(--teal)">${haber?fmt(haber):'—'}</td>
       <td class="td-num" style="font-weight:700;color:${runSaldo>=0?'var(--teal)':'var(--red)'}">${runSaldo>=0?'+':''}${fmt(runSaldo)}</td>
-      <td><button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteDespacho(${d.id})">✕</button></td>
+      <td style="display:flex;gap:4px">${!esTransf?`<button class="btn btn-ghost btn-sm" onclick="editDespacho(${d.id})" title="Editar">✏️</button>`:''}
+      <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteDespacho(${d.id})">✕</button></td>
     </tr>`;}).join('')
     :'<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--text-muted)">Sin registros</td></tr>';
 
@@ -3342,6 +3493,50 @@ function saveDespacho(){
   saveDB();closeModal('modalDespacho');renderDespachos();renderDashboard();toast('Despacho registrado ✓','success');
 }
 function deleteDespacho(id){if(!confirm('¿Eliminar?'))return;db.despachos=db.despachos.filter(d=>d.id!==id);saveDB();renderDespachos();renderDashboard();}
+function editDespacho(id){
+  const d=db.despachos.find(x=>x.id===id); if(!d) return;
+  const html=`<div class="modal-overlay open" id="modalEditDespacho" onclick="if(event.target===this)closeEditDespacho()">
+    <div class="modal" style="max-width:380px">
+      <div class="modal-header"><span class="modal-title">✏️ Editar Despacho #${d.pedidoNum||d.id}</span><button class="modal-close" onclick="closeEditDespacho()">×</button></div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:10px">
+        <div class="form-grid">
+          <div class="form-group"><label class="form-label">Kg embalados</label><input class="form-control" type="number" id="edEmbalKg" value="${d.embalKg||d.kg||0}"></div>
+          <div class="form-group"><label class="form-label">Precio embalaje ($/kg)</label><input class="form-control" type="number" id="edEmbalPrecio" value="${d.embalPrecio||130}" oninput="calcEditDespacho()"></div>
+          <div class="form-group"><label class="form-label">Flete ($)</label><input class="form-control" type="number" id="edFlete" value="${d.flete||0}" oninput="calcEditDespacho()"></div>
+          <div class="form-group"><label class="form-label">Extra ($)</label><input class="form-control" type="number" id="edExtra" value="${d.embalExtra||0}" oninput="calcEditDespacho()"></div>
+          <div class="form-group form-full"><label class="form-label">Observaciones</label><input class="form-control" id="edObs" value="${d.obs||''}"></div>
+        </div>
+        <div style="font-size:13px;font-weight:700;text-align:right">Subtotal: <span id="edSubtotal" style="color:var(--navy-light)">${fmt(d.subtotal||0)}</span></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeEditDespacho()">Cancelar</button>
+        <button class="btn btn-primary" onclick="saveEditDespacho(${id})">💾 Guardar</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend',html);
+  calcEditDespacho();
+}
+function calcEditDespacho(){
+  const kg=Number(document.getElementById('edEmbalKg')?.value)||0;
+  const prec=Number(document.getElementById('edEmbalPrecio')?.value)||0;
+  const flete=Number(document.getElementById('edFlete')?.value)||0;
+  const extra=Number(document.getElementById('edExtra')?.value)||0;
+  const sub=kg*prec+flete+extra;
+  const el=document.getElementById('edSubtotal'); if(el) el.textContent=fmt(sub);
+}
+function closeEditDespacho(){const m=document.getElementById('modalEditDespacho');if(m)m.remove();}
+function saveEditDespacho(id){
+  const d=db.despachos.find(x=>x.id===id); if(!d) return;
+  d.embalKg=Number(document.getElementById('edEmbalKg').value)||0;
+  d.embalPrecio=Number(document.getElementById('edEmbalPrecio').value)||0;
+  d.flete=Number(document.getElementById('edFlete').value)||0;
+  d.embalExtra=Number(document.getElementById('edExtra').value)||0;
+  d.obs=document.getElementById('edObs').value;
+  d.subtotal=d.embalKg*d.embalPrecio+d.flete+d.embalExtra;
+  d.kg=d.embalKg;
+  saveDB(); closeEditDespacho(); renderDespachos(); renderDashboard(); toast('Despacho actualizado ✓','success');
+}
 
 // ════════════════════════════════════════════════
 //  PRESUPUESTOS
@@ -3414,7 +3609,9 @@ function renderPresProductos(){
     if(presEditMode&&canEdit){
       precioCell=`<input type="number" class="pres-price-input" id="presc_${p.id}" value="${precio}" min="1" step="1" onchange="presUpdateCustomPrice('${p.id}',this.value)" title="Precio por kg">`;
     } else {
-      precioCell=`<div style="font-size:12px;white-space:nowrap" class="${isCustom?'pres-precio-custom':''}">${fmt(precio)}/kg${isCustom?'&thinsp;✎':''}</div>`;
+      const delta=db.config.deltaEstampilla||0;
+      const priceSinEst=delta>0?`<div style="font-size:10px;color:var(--text-muted)">${fmt(precio-delta)} s/est.</div>`:'';
+      precioCell=`<div style="font-size:12px;white-space:nowrap" class="${isCustom?'pres-precio-custom':''}">${fmt(precio)}/kg${isCustom?'&thinsp;✎':''}</div>${priceSinEst}`;
     }
     return `<div class="prod-row">
       <div style="font-size:13px;font-weight:500">${p.label}</div>
@@ -3562,6 +3759,32 @@ function renderInformes(){
   document.getElementById('infTablaGastos').innerHTML=Object.entries(gasRub).length?Object.entries(gasRub).sort((a,b)=>b[1]-a[1]).map(([r,v])=>`
     <tr><td>${r}</td><td class="td-right" style="font-weight:700">${fmt(v)}</td></tr>`).join('')
     :'<tr><td colspan="2" style="text-align:center;color:var(--text-muted);padding:20px">Sin gastos en este período</td></tr>';
+
+  // Compras por proveedor (acumulado, no filtrado por mes para mostrar total histórico; o del mes?)
+  // Mostramos acumulado histórico de compras agrupado por proveedor+concepto
+  const comprasProv={};
+  (db.compras||[]).forEach(c=>{
+    const prov=c.proveedor||'Sin proveedor';
+    if(!comprasProv[prov]) comprasProv[prov]=[];
+    (c.items||[]).forEach(i=>{
+      const exist=comprasProv[prov].find(x=>x.concepto===i.concepto);
+      if(exist){exist.cantidad+=Number(i.cantidad)||0;exist.total+=(Number(i.cantidad)||0)*(Number(i.precio)||0);}
+      else comprasProv[prov].push({concepto:i.concepto,cantidad:Number(i.cantidad)||0,total:(Number(i.cantidad)||0)*(Number(i.precio)||0)});
+    });
+  });
+  const compravRows=Object.entries(comprasProv).flatMap(([prov,items])=>
+    items.map((it,idx)=>`<tr><td>${idx===0?`<b>${prov}</b>`:''}</td><td>${it.concepto}</td><td class="td-right">${fmtNum(it.cantidad)} ${it.concepto==='Estampillas'?'u':'kg'}</td><td class="td-right">${fmt(it.total)}</td></tr>`)
+  );
+  const elCP=document.getElementById('infTablaComprasProv');
+  if(elCP) elCP.innerHTML=compravRows.length?compravRows.join(''):'<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:20px">Sin compras registradas</td></tr>';
+
+  // Precio promedio por kg (ingresos mes / kg vendidos mes)
+  const ppkg=kgVendidos>0?Math.round(ingresos/kgVendidos):0;
+  // Agregar al infKpis si existe
+  const infKpisEl=document.getElementById('infKpis');
+  if(infKpisEl&&ppkg>0){
+    infKpisEl.insertAdjacentHTML('beforeend',`<div class="inf-card"><div class="inf-val" style="color:var(--navy-light)">${fmt(ppkg)}/kg</div><div class="inf-lbl">Precio promedio/kg</div></div>`);
+  }
 }
 
 // ════════════════════════════════════════════════
@@ -3744,7 +3967,8 @@ function renderCatalogoApp(){
       </div>
       <div class="cat-card-body">
         <div class="cat-precio">${fmt(p.precio)}</div>
-        <span class="cat-unit">por kg</span>
+        <span class="cat-unit">por kg c/estampilla</span>
+        ${(db.config.deltaEstampilla||0)>0?`<div style="font-size:11px;color:var(--text-muted);margin-top:2px">${fmt(p.precio-(db.config.deltaEstampilla||0))} s/estampilla</div>`:''}
         <div class="cat-qty">
           <button class="cat-qty-btn" onclick="appCatQty('${p.id}',-1)">−</button>
           <span class="cat-qty-num" id="apqty-${p.id}">0 kg</span>
@@ -3900,6 +4124,11 @@ function guardarPrecioDespacho(){
   db.config.precioDespachoDefault=v;
   saveDB();toast('Precio de despacho guardado ✓','success');
 }
+function guardarDeltaEstampilla(){
+  const v=Number(document.getElementById('deltaEstampillaInput').value)||0;
+  db.config.deltaEstampilla=v;
+  saveDB();toast('Descuento estampilla guardado ✓','success');
+}
 
 function renderCuentasCobro(){
   const el=document.getElementById('cuentasCobroBody'); if(!el) return;
@@ -3971,6 +4200,8 @@ function openGastoModal(){
   document.getElementById('gastoFecha').value=today();
   document.getElementById('gastoMonto').value='';
   document.getElementById('gastoDesc').value='';
+  const rubros=db.config.rubrosGastos||['Embalaje','Estampillas','Transporte','Despacho','Impuestos','Retiros','Servicios','Varios'];
+  document.getElementById('gastoRubro').innerHTML=rubros.map(r=>`<option value="${r}">${r}</option>`).join('');
   openModal('modalGasto');
 }
 function saveGasto(){
@@ -4888,13 +5119,57 @@ function renderProductosConfig(){
       </td>
       <td><code style="font-size:11px;background:var(--bg);padding:2px 7px;border-radius:5px">${p.id}</code></td>
       <td class="td-right" style="font-weight:700;color:var(--navy-light)">${fmt(p.precio)}/kg</td>
-      <td style="display:flex;gap:6px;align-items:center">
+      <td style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <button class="btn btn-ghost btn-sm" onclick="openProductoModal('${p.id}')">✏️ Editar</button>
+        <button class="btn btn-ghost btn-sm" onclick="openComposicionModal('${p.id}')" title="Ver composición de precio">📊</button>
         ${i>0?`<button class="btn btn-ghost btn-sm" onclick="moverProducto('${p.id}',-1)" title="Subir">↑</button>`:''}
         ${i<prods.length-1?`<button class="btn btn-ghost btn-sm" onclick="moverProducto('${p.id}',1)" title="Bajar">↓</button>`:''}
         <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteProducto('${p.id}')">🗑️</button>
       </td>
     </tr>`).join('');
+}
+
+function openComposicionModal(pid){
+  const p=getProductos().find(x=>x.id===pid); if(!p) return;
+  if(!db.config.preciosComposicion) db.config.preciosComposicion={};
+  const comp=db.config.preciosComposicion[pid]||{costo:0,flete:0,despacho:0,ganancia:0,impuestos:0};
+  const total=(Number(comp.costo)||0)+(Number(comp.flete)||0)+(Number(comp.despacho)||0)+(Number(comp.ganancia)||0)+(Number(comp.impuestos)||0);
+  const html=`<div class="modal-overlay open" id="modalComposicion" onclick="if(event.target===this)closeComposicionModal()">
+    <div class="modal" style="max-width:400px">
+      <div class="modal-header"><span class="modal-title">📊 Composición precio — ${p.label}</span><button class="modal-close" onclick="closeComposicionModal()">×</button></div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:12px;color:var(--text-muted)">Precio de lista actual: <b style="color:var(--navy-light)">${fmt(p.precio)}/kg</b></div>
+        ${[['costo','🌿 Costo Proceso ($/kg)'],['flete','🚚 Flete ($/kg)'],['despacho','📦 Despacho / Embalaje ($/kg)'],['ganancia','💰 Ganancia ($/kg)'],['impuestos','🏛️ Impuestos ($/kg)']].map(([k,lbl])=>`
+        <div style="display:flex;align-items:center;gap:10px">
+          <label style="flex:1;font-size:12px">${lbl}</label>
+          <input class="form-control" type="number" min="0" step="1" id="comp_${k}" value="${comp[k]||0}" style="width:110px" oninput="calcComposicionTotal()">
+        </div>`).join('')}
+        <div style="border-top:2px solid var(--border);padding-top:10px;display:flex;justify-content:space-between;font-weight:700">
+          <span>Total composición</span>
+          <span id="compTotal" style="color:var(--navy-light)">${fmt(total)}/kg</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeComposicionModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarComposicion('${pid}')">💾 Guardar</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+function calcComposicionTotal(){
+  const keys=['costo','flete','despacho','ganancia','impuestos'];
+  const t=keys.reduce((s,k)=>s+(Number(document.getElementById('comp_'+k)?.value)||0),0);
+  const el=document.getElementById('compTotal'); if(el) el.textContent=fmt(t)+'/kg';
+}
+function closeComposicionModal(){const m=document.getElementById('modalComposicion');if(m)m.remove();}
+function guardarComposicion(pid){
+  if(!db.config.preciosComposicion) db.config.preciosComposicion={};
+  const keys=['costo','flete','despacho','ganancia','impuestos'];
+  const comp={};
+  keys.forEach(k=>comp[k]=Number(document.getElementById('comp_'+k)?.value)||0);
+  db.config.preciosComposicion[pid]=comp;
+  saveDB(); closeComposicionModal(); toast('Composición guardada ✓','success');
 }
 
 function openProductoModal(id){
@@ -5034,6 +5309,45 @@ function restaurarBackup(input){
   input.value = ''; // reset para poder importar el mismo archivo de nuevo
 }
 
+function imprimirMesAnterior(){
+  const ahora=new Date();
+  const prevDate=new Date(ahora.getFullYear(), ahora.getMonth()-1, 1);
+  const m=prevDate.getMonth(); const y=prevDate.getFullYear();
+  const label=MES_NOMBRES[m]+' '+y;
+  const pedMes=db.pedidos.filter(p=>{const d=new Date(p.fecha+'T00:00:00');return d.getMonth()===m&&d.getFullYear()===y;});
+  const compMes=(db.compras||[]).filter(c=>{const d=new Date(c.fecha+'T00:00:00');return d.getMonth()===m&&d.getFullYear()===y;});
+  const gasMes=(db.gastos||[]).filter(g=>{const d=new Date(g.fecha+'T00:00:00');return d.getMonth()===m&&d.getFullYear()===y;});
+  const ingresos=pedMes.reduce((s,p)=>s+(Number(p.ingreso)||0),0);
+  const totalGastos=gasMes.reduce((s,g)=>s+(Number(g.monto)||0),0);
+  const kgVend=pedMes.reduce((s,p)=>s+(p.productos||[]).reduce((a,r)=>a+(Number(r.kg)||0),0),0);
+
+  const pedRows=pedMes.sort((a,b)=>a.numero-b.numero).map(p=>{
+    const kg=(p.productos||[]).reduce((s,r)=>s+(Number(r.kg)||0),0);
+    return `<tr><td>#${p.numero}</td><td>${p.fecha||''}</td><td>${p.nombre||''}</td><td style="text-align:right">${kg} kg</td><td style="text-align:right">${p.ingreso?'$'+Number(p.ingreso).toLocaleString('es-AR'):'-'}</td><td>${p.estado||''}</td></tr>`;
+  }).join('');
+  const compRows=compMes.map(c=>{
+    const sub=c.items.reduce((s,i)=>s+(Number(i.cantidad)||0)*(Number(i.precio)||0),0);
+    return `<tr><td>${c.numero||''}</td><td>${c.fecha||''}</td><td>${c.proveedor||''}</td><td style="text-align:right">$${sub.toLocaleString('es-AR')}</td></tr>`;
+  }).join('');
+  const gasRows=gasMes.map(g=>`<tr><td>${g.fecha||''}</td><td>${g.rubro||''}</td><td>${g.desc||''}</td><td style="text-align:right">$${Number(g.monto).toLocaleString('es-AR')}</td></tr>`).join('');
+
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Resumen ${label}</title>
+  <style>body{font-family:Arial,sans-serif;font-size:12px;color:#333;padding:20px}h1{font-size:18px;margin-bottom:4px}h2{font-size:14px;margin:20px 0 8px;color:#2c5f2e}table{width:100%;border-collapse:collapse;margin-bottom:8px}th,td{border:1px solid #ccc;padding:5px 8px;text-align:left}th{background:#f0f4ec}.totals{display:flex;gap:30px;margin:16px 0;font-size:13px}.totals span{font-weight:700}@media print{button{display:none}}</style>
+  </head><body>
+  <h1>Sabores de Misiones — Resumen ${label}</h1>
+  <div class="totals"><div>Ingresos: <span>$${ingresos.toLocaleString('es-AR')}</span></div><div>Kg vendidos: <span>${kgVend} kg</span></div><div>Gastos: <span>$${totalGastos.toLocaleString('es-AR')}</span></div></div>
+  <h2>Pedidos (${pedMes.length})</h2>
+  <table><thead><tr><th>#</th><th>Fecha</th><th>Cliente</th><th>Kg</th><th>Ingreso</th><th>Estado</th></tr></thead><tbody>${pedRows||'<tr><td colspan="6">Sin pedidos</td></tr>'}</tbody></table>
+  <h2>Compras (${compMes.length})</h2>
+  <table><thead><tr><th>OC</th><th>Fecha</th><th>Proveedor</th><th>Total</th></tr></thead><tbody>${compRows||'<tr><td colspan="4">Sin compras</td></tr>'}</tbody></table>
+  <h2>Gastos (${gasMes.length})</h2>
+  <table><thead><tr><th>Fecha</th><th>Rubro</th><th>Detalle</th><th>Monto</th></tr></thead><tbody>${gasRows||'<tr><td colspan="4">Sin gastos</td></tr>'}</tbody></table>
+  <script>window.onload=()=>window.print();<\/script>
+  </body></html>`;
+  const w=window.open('','_blank');
+  if(w){w.document.write(html);w.document.close();}
+}
+
 function limpiarMesesAnteriores(){
   const ahora    = new Date();
   const mesActual= ahora.getFullYear() + '-' + String(ahora.getMonth()+1).padStart(2,'0');
@@ -5120,18 +5434,47 @@ function limpiarMesesAnteriores(){
   renderDashboard();
 }
 
+function renderRubrosGastos(){
+  const rubros=db.config.rubrosGastos||[];
+  const el=document.getElementById('rubrosGastosBody'); if(!el) return;
+  el.innerHTML=rubros.length?rubros.map((r,i)=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="flex:1;font-size:13px">${r}</span>
+      <button class="btn btn-ghost btn-sm" style="color:var(--red);padding:2px 8px" onclick="eliminarRubroGasto(${i})">✕</button>
+    </div>`).join('')
+  :'<div style="font-size:12px;color:var(--text-muted);padding:8px 0">Sin rubros configurados</div>';
+}
+function agregarRubroGasto(){
+  const inp=document.getElementById('nuevoRubroInput'); if(!inp) return;
+  const val=(inp.value||'').trim();
+  if(!val){toast('Ingresá un nombre','error');return;}
+  if(!db.config.rubrosGastos) db.config.rubrosGastos=[];
+  if(db.config.rubrosGastos.includes(val)){toast('Ya existe ese rubro','error');return;}
+  db.config.rubrosGastos.push(val);
+  inp.value='';
+  saveDB(); renderRubrosGastos(); toast('Rubro agregado ✓','success');
+}
+function eliminarRubroGasto(i){
+  if(!db.config.rubrosGastos) return;
+  db.config.rubrosGastos.splice(i,1);
+  saveDB(); renderRubrosGastos(); toast('Rubro eliminado','success');
+}
+
 function renderConfigSection(){
   renderEstadosConfig();
   renderProductosConfig();
   renderCodigosDescuento();
   renderCuentasCobro();
   renderPreciosCosto();
+  renderRubrosGastos();
   const stockEl=document.getElementById('stockEstDisplay');
   if(stockEl) stockEl.textContent=db.config.stockEstampillas||0;
   const cuotaEl=document.getElementById('cuotaKgInput');
   if(cuotaEl) cuotaEl.value=db.config.cuotaKgMensual||0;
   const despEl=document.getElementById('precioDespachoInput');
   if(despEl) despEl.value=db.config.precioDespachoDefault||180;
+  const deltaEl=document.getElementById('deltaEstampillaInput');
+  if(deltaEl) deltaEl.value=db.config.deltaEstampilla!==undefined?db.config.deltaEstampilla:220;
   const tbody = document.getElementById('usersTbody');
   if(!tbody) return;
   const rolColors = {admin:'role-admin',dario:'role-dario',lucia:'role-lucia',cliente:'role-cliente'};
