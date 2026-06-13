@@ -1468,6 +1468,13 @@ tr:hover td{background:#fafbfd}
             <b style="color:var(--red);display:block;margin-bottom:4px">⚠️ Zona de precaución</b>
             Estas acciones eliminan datos permanentemente. Se descarga un backup automático antes de borrar.
           </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;background:#fff0f0;border:2px solid var(--red);border-radius:8px;padding:12px 14px">
+            <div>
+              <div style="font-size:13px;font-weight:700;color:var(--red)">🗑️ BORRAR TODOS LOS DATOS</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Elimina pedidos, clientes, compras, gastos y movimientos <b>en todos los dispositivos</b>. Conserva configuración y usuarios.</div>
+            </div>
+            <button class="btn btn-danger btn-sm" onclick="resetTodosDatos()">🗑 Borrar todo</button>
+          </div>
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
             <div>
               <div style="font-size:13px;font-weight:600;color:var(--text)">Imprimir resumen del mes anterior</div>
@@ -2035,6 +2042,7 @@ function _initDbFields(){
   if(!db.config.preciosComposicion) db.config.preciosComposicion={};
 }
 function saveDB(){
+  db._lastModified = Date.now();
   localStorage.setItem(DB_KEY, JSON.stringify(db));
   _syncPush();
 }
@@ -2061,15 +2069,23 @@ function _syncPush(){
   _syncTimer = setTimeout(async ()=>{
     _setSyncStatus('syncing');
     try{
+      // Verificar conectividad primero con un GET rápido
+      const check = await fetch(SABORES_SCRIPT_URL + '?action=ping', { redirect:'follow' });
+      const j = await check.json().catch(()=>({}));
+      if(!j.ok && !j.success && !j.pong){
+        throw new Error('ping failed');
+      }
+      // Enviar datos
       await _gasPost('saveDB', JSON.stringify(db));
       _setSyncStatus('ok');
-      toast('☁ Guardado en la nube ✓', 'success');
     } catch(e){
       _setSyncStatus('error');
-      toast('Sin conexión — guardado solo localmente', 'warning');
+      // Reintentar en 30 segundos si falló
+      _syncRetryTimer = setTimeout(()=>_syncPush(), 30000);
     }
   }, 1200);
 }
+let _syncRetryTimer = null;
 
 async function _syncPull(){
   if(!SABORES_SCRIPT_URL) return false;
@@ -2079,7 +2095,15 @@ async function _syncPull(){
     if(j.success && j.data){
       const remote = JSON.parse(j.data);
       if(remote && (remote.pedidos || remote.clientes || remote.config)){
-        // Preservar códigos de descuento locales (fusionar con remoto)
+        const localTs  = db._lastModified || 0;
+        const remoteTs = remote._lastModified || 0;
+        // Si el local es más nuevo, no pisar — solo hacer push del local a la nube
+        if(localTs > remoteTs){
+          console.log('Local más nuevo (' + localTs + ' > ' + remoteTs + '): descartando pull, re-pusheando local');
+          _syncPush();
+          return true;
+        }
+        // Remoto es más nuevo: aplicar
         const localCodigos = db.config?.codigosDescuento||{};
         db = remote;
         _initDbFields();
@@ -5346,6 +5370,55 @@ function imprimirMesAnterior(){
   </body></html>`;
   const w=window.open('','_blank');
   if(w){w.document.write(html);w.document.close();}
+}
+
+async function resetTodosDatos(){
+  if(!confirm('⚠️ ATENCIÓN: esto borra TODOS los datos (pedidos, clientes, compras, gastos, despachos, movimientos Proceso y Despacho).\n\nLa configuración (productos, usuarios, estados) se conserva.\n\n¿Confirmar limpieza total?')) return;
+  if(!confirm('Segunda confirmación: ¿Borrar todo? Esta acción no se puede deshacer.')) return;
+
+  // Guardar configuración antes de borrar
+  const configBackup = JSON.parse(JSON.stringify(db.config));
+
+  db.pedidos = [];
+  db.clientes = [];
+  db.dario = [];
+  db.compras = [];
+  db.despachos = [];
+  db.gastos = [];
+  db.presupuestosGuardados = [];
+  db.config = configBackup;
+  db.config.nextPedido = 1;
+  db.config.nextCompra = 1;
+  db.config.mesActual = null;
+  db._lastModified = Date.now();
+
+  localStorage.setItem(DB_KEY, JSON.stringify(db));
+
+  // Subir datos limpios a la nube inmediatamente (sin debounce)
+  toast('Limpiando datos en la nube…', 'info');
+  try{
+    const check = await fetch(SABORES_SCRIPT_URL + '?action=getDB', { redirect:'follow' });
+    await check.json(); // confirmar que hay conexión
+    await _gasPost('saveDB', JSON.stringify(db));
+    // Verificar que llegó
+    await new Promise(r=>setTimeout(r,2000));
+    const ver = await fetch(SABORES_SCRIPT_URL + '?action=getDB', { redirect:'follow' });
+    const vj  = await ver.json();
+    if(vj.success && vj.data){
+      const rem = JSON.parse(vj.data);
+      if((rem.pedidos||[]).length === 0){
+        toast('✅ Datos borrados en todos los dispositivos', 'success');
+      } else {
+        toast('⚠️ Local limpiado. La nube puede tardar unos segundos más.', 'warning');
+      }
+    }
+  } catch(e){
+    toast('Sin conexión — datos borrados localmente. Sincronizará al volver a conectar.', 'warning');
+  }
+
+  renderDashboard();
+  if(typeof renderPedidos==='function') renderPedidos();
+  if(typeof renderClientes==='function') renderClientes();
 }
 
 function limpiarMesesAnteriores(){
